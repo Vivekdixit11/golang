@@ -1,4 +1,4 @@
-package handler
+package main
 
 import (
 	"context"
@@ -67,4 +67,10 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func main() {
+	http.HandleFunc("/", Handler)
+	http.HandleFunc("/login", loginHandler)
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
