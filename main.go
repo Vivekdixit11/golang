@@ -69,8 +69,83 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+type Module struct {
+	Title string `json:"title" bson:"title"`
+	PDF   string `json:"pdf" bson:"pdf"`
+}
+
+type Course struct {
+	Title       string   `json:"title" bson:"title"`
+	Description string   `json:"description" bson:"description"`
+	Duration    string   `json:"duration" bson:"duration"`
+	Modules     []Module `json:"modules" bson:"modules"`
+	Type        string   `json:"type" bson:"type"`
+}
+
+func createCourseHandler(w http.ResponseWriter, r *http.Request) {
+	var course Course
+	err := json.NewDecoder(r.Body).Decode(&course)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if !validateCourse(course) {
+		http.Error(w, "Invalid course data", http.StatusBadRequest)
+		return
+	}
+
+	collection := client.Database("lms").Collection("courses")
+	_, err = collection.InsertOne(context.TODO(), course)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Course created successfully"})
+}
+
+func validateCourse(course Course) bool {
+	if len(course.Title) > 20 || len(course.Description) > 150 {
+		return false
+	}
+	for _, module := range course.Modules {
+		if len(module.Title) > 20 {
+			return false
+		}
+	}
+	return true
+}
+
+func getCourseTitlesHandler(w http.ResponseWriter, r *http.Request) {
+	collection := client.Database("lms").Collection("courses")
+	cursor, err := collection.Find(context.TODO(), bson.M{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(context.TODO())
+
+	var courses []Course
+	if err = cursor.All(context.TODO(), &courses); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var titles []string
+	for _, course := range courses {
+		titles = append(titles, course.Title)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(titles)
+}
+
 func main() {
 	http.HandleFunc("/", Handler)
 	http.HandleFunc("/login", loginHandler)
+	http.HandleFunc("/create-course", createCourseHandler)
+	http.HandleFunc("/course-titles", getCourseTitlesHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
