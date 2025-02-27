@@ -31,6 +31,19 @@ func init() {
 	fmt.Println("Connected to MongoDB!")
 }
 
+// CORS middleware
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == "OPTIONS" {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Handler function
 func Handler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
@@ -38,8 +51,16 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Server is up and connected to MongoDB")
 	case "/login":
 		loginHandler(w, r)
+	case "/create-course":
+		createCourseHandler(w, r)
+	case "/courses":
+		getCoursesHandler(w, r)
+	case "/courses/upcoming":
+		getUpcomingCoursesHandler(w, r)
+	case "/courses/active":
+		getActiveCoursesHandler(w, r)
 	default:
-		http.NotFound(w, r)
+		http.Error(w, "Bhai API galat call kar rha hai ek baar dekh le", http.StatusNotFound)
 	}
 }
 
@@ -118,7 +139,7 @@ func validateCourse(course Course) bool {
 	return true
 }
 
-func getCourseTitlesHandler(w http.ResponseWriter, r *http.Request) {
+func getCoursesHandler(w http.ResponseWriter, r *http.Request) {
 	collection := client.Database("lms").Collection("courses")
 	cursor, err := collection.Find(context.TODO(), bson.M{})
 	if err != nil {
@@ -133,19 +154,59 @@ func getCourseTitlesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var titles []string
-	for _, course := range courses {
-		titles = append(titles, course.Title)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(courses)
+}
+
+func getUpcomingCoursesHandler(w http.ResponseWriter, r *http.Request) {
+	collection := client.Database("lms").Collection("courses")
+	cursor, err := collection.Find(context.TODO(), bson.M{"type": "upcoming"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(context.TODO())
+
+	var courses []Course
+	if err = cursor.All(context.TODO(), &courses); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(titles)
+	json.NewEncoder(w).Encode(courses)
+}
+
+func getActiveCoursesHandler(w http.ResponseWriter, r *http.Request) {
+	collection := client.Database("lms").Collection("courses")
+	cursor, err := collection.Find(context.TODO(), bson.M{"type": "Active"})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(context.TODO())
+
+	var courses []Course
+	if err = cursor.All(context.TODO(), &courses); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Log the retrieved courses for debugging
+	fmt.Printf("Retrieved active courses: %+v\n", courses)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(courses)
 }
 
 func main() {
-	http.HandleFunc("/", Handler)
-	http.HandleFunc("/login", loginHandler)
-	http.HandleFunc("/create-course", createCourseHandler)
-	http.HandleFunc("/course-titles", getCourseTitlesHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", Handler)
+	mux.HandleFunc("/login", loginHandler)
+	mux.HandleFunc("/create-course", createCourseHandler)
+	mux.HandleFunc("/courses", getCoursesHandler)
+	mux.HandleFunc("/courses/upcoming", getUpcomingCoursesHandler)
+	mux.HandleFunc("/courses/active", getActiveCoursesHandler)
+
+	log.Fatal(http.ListenAndServe(":8080", enableCORS(mux)))
 }
