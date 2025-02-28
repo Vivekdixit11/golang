@@ -64,6 +64,8 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		getUpcomingCoursesHandler(w, r)
 	case "/courses/active":
 		getActiveCoursesHandler(w, r)
+	case "/send-feedback":
+		sendFeedbackHandler(w, r)
 	default:
 		http.Error(w, "Bhai API galat call kar rha hai ek baar dekh le", http.StatusNotFound)
 	}
@@ -204,6 +206,30 @@ func getActiveCoursesHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(courses)
 }
 
+func sendFeedbackHandler(w http.ResponseWriter, r *http.Request) {
+	var feedback struct {
+		Name    string `json:"name"`
+		Email   string `json:"email"`
+		Message string `json:"message"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&feedback)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	collection := client.Database("lms").Collection("feedback")
+	_, err = collection.InsertOne(context.TODO(), feedback)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Feedback submitted successfully"})
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", Handler)
@@ -212,6 +238,7 @@ func main() {
 	mux.HandleFunc("/courses", getCoursesHandler)
 	mux.HandleFunc("/courses/upcoming", getUpcomingCoursesHandler)
 	mux.HandleFunc("/courses/active", getActiveCoursesHandler)
+	mux.HandleFunc("/send-feedback", sendFeedbackHandler)
 
 	log.Fatal(http.ListenAndServe(":8080", enableCORS(mux)))
 }
